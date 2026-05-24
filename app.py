@@ -61,7 +61,7 @@ st.markdown('''
 # ==========================================
 @st.cache_data
 def load_and_clean_data():
-    file_path = '/content/Project_DataSet.csv'
+    file_path = 'Project_DataSet.csv'
     if not os.path.exists(file_path):
         st.error("🚨 Error: Dataset 'Project_DataSet.csv' is missing.")
         st.stop()
