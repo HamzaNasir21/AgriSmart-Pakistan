@@ -21,6 +21,10 @@ st.set_page_config(
 
 st.markdown('''
     <style>
+    /* Remove default Streamlit header and top padding */
+        header {visibility: hidden;}
+        #MainMenu {visibility: hidden;}
+        .block-container {padding-top: 1rem;}
     .stApp {
         background-color: #060b08;
         background-image: radial-gradient(circle at 50% 10%, #0d2216 0%, #060b08 80%);
