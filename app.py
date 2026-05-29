@@ -34,7 +34,10 @@ def load_data():
         st.error("Dataset 'Project_Dataset.csv' is missing. Please ensure it is uploaded.")
         return None
     
-    df.columns = df.columns.str.strip().str.title()
+    # Text cleaning
+    if 'city' in df.columns: df['city'] = df['city'].astype(str).str.strip().str.title()
+    if 'crop' in df.columns: df['crop'] = df['crop'].astype(str).str.strip().str.title()
+    
     return df
 
 df = load_data()
@@ -43,11 +46,11 @@ if df is not None:
     le_city = LabelEncoder()
     le_crop = LabelEncoder()
     
-    df['City_Encoded'] = le_city.fit_transform(df['City'])
-    df['Crop_Encoded'] = le_crop.fit_transform(df['Crop'])
+    df['City_Encoded'] = le_city.fit_transform(df['city'])
+    df['Crop_Encoded'] = le_crop.fit_transform(df['crop'])
     
-    mean_global_price = df['Price'].mean()
-    df['Is_High_Price'] = (df['Price'] > mean_global_price).astype(int)
+    mean_global_price = df['avg_price_per_kg'].mean()
+    df['Is_High_Price'] = (df['avg_price_per_kg'] > mean_global_price).astype(int)
 
     st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2917/2917995.png", width=100)
     st.sidebar.title("Navigation")
@@ -65,18 +68,18 @@ if df is not None:
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            sel_city = st.selectbox("Select City", df['City'].unique())
+            sel_city = st.selectbox("Select City", df['city'].unique())
         with col2:
-            sel_crop = st.selectbox("Select Commodity", df['Crop'].unique())
+            sel_crop = st.selectbox("Select Commodity", df['crop'].unique())
         with col3:
             shop_price = st.number_input("Price Shopkeeper is Asking (PKR):", min_value=1.0, value=100.0, step=1.0)
             
         if st.button("Analyze Price & Risk", use_container_width=True):
             with st.spinner("Analyzing market data..."):
-                city_data = df[(df['City'] == sel_city) & (df['Crop'] == sel_crop)]
+                city_data = df[(df['city'] == sel_city) & (df['crop'] == sel_crop)]
                 
                 if not city_data.empty:
-                    avg_price = city_data['Price'].mean()
+                    avg_price = city_data['avg_price_per_kg'].mean()
                     diff = shop_price - avg_price
                     
                     st.markdown("### 📊 Market Analysis")
@@ -122,26 +125,26 @@ if df is not None:
         
         c1, c2 = st.columns(2)
         with c1:
-            sel_crop = st.selectbox("Select Crop to Analyze", df['Crop'].unique())
+            sel_crop = st.selectbox("Select Crop to Analyze", df['crop'].unique())
         with c2:
             kg_to_sell = st.number_input("Total KGs you plan to sell (Wholesale Unit):", min_value=40, value=40, step=40)
             
         st.info("💡 Note: 40 KG represents 1 'Mann', the standard wholesale unit in Pakistan.")
 
-        crop_data = df[df['Crop'] == sel_crop].copy()
+        crop_data = df[df['crop'] == sel_crop].copy()
         if not crop_data.empty:
             st.markdown("### 📈 Macro-Economic Trend Analysis (Linear Regression)")
             
             crop_data['Time_Index'] = np.arange(len(crop_data))
             X_lr = crop_data[['Time_Index']]
-            y_lr = crop_data['Price']
+            y_lr = crop_data['avg_price_per_kg']
             
             lr_model = LinearRegression()
             lr_model.fit(X_lr, y_lr)
             crop_data['Trend_Line'] = lr_model.predict(X_lr)
             
             fig = go.Figure()
-            fig.add_trace(go.Scatter(x=crop_data['Time_Index'], y=crop_data['Price'], mode='lines', name='Actual Price Fluctuations', line=dict(color='lightblue')))
+            fig.add_trace(go.Scatter(x=crop_data['Time_Index'], y=crop_data['avg_price_per_kg'], mode='lines', name='Actual Price Fluctuations', line=dict(color='lightblue')))
             fig.add_trace(go.Scatter(x=crop_data['Time_Index'], y=crop_data['Trend_Line'], mode='lines', name='Linear Trend (Macro Direction)', line=dict(color='red', width=3)))
             fig.update_layout(title=f"Historical Price vs Projected Trend for {sel_crop}", xaxis_title="Timeline (Data Points)", yaxis_title="Price (PKR)")
             st.plotly_chart(fig, use_container_width=True)
@@ -154,7 +157,7 @@ if df is not None:
                 
             st.markdown("---")
             st.markdown("### 💰 Profit Estimation")
-            current_avg_price = crop_data['Price'].mean()
+            current_avg_price = crop_data['avg_price_per_kg'].mean()
             est_revenue = current_avg_price * kg_to_sell
             st.metric("Estimated Revenue", f"Rs. {est_revenue:,.2f}", f"Based on {kg_to_sell} KGs")
 
@@ -166,30 +169,30 @@ if df is not None:
         
         col1, col2 = st.columns(2)
         with col1:
-            sel_city = st.selectbox("Target Region", df['City'].unique())
-            sel_crop = st.selectbox("Target Commodity", df['Crop'].unique())
+            sel_city = st.selectbox("Target Region", df['city'].unique())
+            sel_crop = st.selectbox("Target Commodity", df['crop'].unique())
         with col2:
             fuel_hike = st.slider("Fuel Price Increase (%)", 0, 100, 0)
             inflation_rate = st.slider("Inflation Rate (%)", 0.0, 30.0, 5.0)
 
         if st.button("Simulate Economic Impact", use_container_width=True):
             with st.spinner("Running Ensembled ML Simulation..."):
-                if 'Fuel_Price' not in df.columns:
-                    df['Fuel_Price'] = np.random.uniform(250, 300, len(df))
-                if 'Inflation_Rate' not in df.columns:
-                    df['Inflation_Rate'] = np.random.uniform(5, 20, len(df))
+                if 'fuel_price_change' not in df.columns:
+                    df['fuel_price_change'] = np.random.uniform(0, 10, len(df))
+                if 'inflation_rate_percent' not in df.columns:
+                    df['inflation_rate_percent'] = np.random.uniform(5, 20, len(df))
                     
-                features = ['City_Encoded', 'Crop_Encoded', 'Fuel_Price', 'Inflation_Rate']
-                X_rf = df[features]
-                y_rf = df['Price']
+                features = ['City_Encoded', 'Crop_Encoded', 'fuel_price_change', 'inflation_rate_percent']
+                X_rf = df[features].fillna(0)
+                y_rf = df['avg_price_per_kg']
                 
                 rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
                 rf_model.fit(X_rf, y_rf)
                 
                 city_enc = le_city.transform([sel_city])[0]
                 crop_enc = le_crop.transform([sel_crop])[0]
-                base_fuel = df['Fuel_Price'].mean()
-                base_infl = df['Inflation_Rate'].mean()
+                base_fuel = df['fuel_price_change'].mean()
+                base_infl = df['inflation_rate_percent'].mean()
                 
                 base_pred = rf_model.predict([[city_enc, crop_enc, base_fuel, base_infl]])[0]
                 
@@ -213,10 +216,3 @@ if df is not None:
                 })
                 fig2 = px.pie(impact_df, values='Value (PKR)', names='Factor', title="Contribution to Final Price", hole=0.4)
                 st.plotly_chart(fig2, use_container_width=True)
-                
-                with st.expander("View AI Reasoning"):
-                    st.write("""
-                    **Model Architecture:** Base price is predicted using a Random Forest Regressor trained on historical patterns. 
-                    However, per our Exploratory Data Analysis (EDA), Pure ML models can under-predict unseen economic shocks. 
-                    Therefore, dynamic heuristic weights (Transport = 25%, Inflation = 50%) are applied logically to guarantee macroeconomic accuracy.
-                    """)
