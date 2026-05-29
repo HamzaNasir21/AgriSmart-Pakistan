@@ -3,242 +3,281 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+import os
+import time
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import LinearRegression
 from sklearn.naive_bayes import GaussianNB
 from sklearn.preprocessing import LabelEncoder
 import warnings
-
 warnings.filterwarnings('ignore')
 
-st.set_page_config(page_title="AgriSmart Pakistan", page_icon="🌾", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="AgriSmart Pakistan", 
+    page_icon="🌾", 
+    layout="wide", 
+    initial_sidebar_state="collapsed"
+)
 
-st.markdown("""
+st.markdown('''
     <style>
-    .reportview-container {background: #0e1117;}
-    .sidebar .sidebar-content {background: #262730;}
-    h1, h2, h3 {color: #00ff9d !important; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;}
-    .stMetric {background-color: #1e1e24; padding: 20px; border-radius: 15px; border-left: 5px solid #00ff9d; box-shadow: 0 8px 16px rgba(0,0,0,0.4); transition: transform 0.3s;}
-    .stMetric:hover {transform: translateY(-5px);}
-    div[data-testid="stAlert"] {border-radius: 12px; font-weight: bold;}
-    hr {border-color: #333333;}
+    .stApp {
+        background-color: #060b08;
+        background-image: radial-gradient(circle at 50% 10%, #0d2216 0%, #060b08 80%);
+        color: #ffffff !important; 
+        font-family: 'Arial', sans-serif;
+    }
+    h1, h2, h3, h4, h5, h6, p, label, span { color: #ffffff !important; }
+    h1, h3 { color: #00e676 !important; font-weight: bold !important; }
+    .metric-card {
+        background: rgba(20, 40, 30, 0.8);
+        backdrop-filter: blur(10px); padding: 20px; border-radius: 15px;
+        border-left: 6px solid #00e676; text-align: center; margin-bottom: 20px;
+        box-shadow: 0 4px 15px rgba(0, 230, 118, 0.2); transition: 0.3s ease;
+    }
+    .metric-card:hover { transform: translateY(-5px) scale(1.02); box-shadow: 0 10px 30px rgba(0, 230, 118, 0.4); }
+    .warning-card { border-left: 6px solid #ff3d00; background: rgba(40, 20, 20, 0.8); }
+    .warning-card:hover { box-shadow: 0 10px 30px rgba(255, 61, 0, 0.4); }
+    .stButton>button {
+        background: linear-gradient(90deg, #00e676 0%, #00b0ff 100%) !important;
+        color: #000000 !important; font-size: 18px !important; font-weight: bold !important;
+        border-radius: 12px !important; padding: 10px 20px !important; border: none !important;
+        box-shadow: 0 4px 15px rgba(0, 230, 118, 0.4) !important; transition: 0.3s !important;
+    }
+    .stButton>button:hover { transform: scale(1.05) !important; box-shadow: 0 6px 25px rgba(0, 230, 118, 0.7) !important; }
+    .stTabs [data-baseweb="tab"] {
+        color: #ffffff !important; font-size: 16px !important; font-weight: bold;
+        background-color: rgba(255, 255, 255, 0.05); border-radius: 8px; margin-right: 5px;
+    }
+    .stTabs [aria-selected="true"] { background-color: rgba(0, 230, 118, 0.2) !important; border: 1px solid #00e676 !important; }
     </style>
-    """, unsafe_allow_html=True)
-
-st.title("🌾 AgriSmart Pakistan")
-st.markdown("**Enterprise-Grade Decision Support & Price Monitoring Terminal**")
-st.markdown("---")
+''', unsafe_allow_html=True)
 
 @st.cache_data
-def load_data():
-    try:
-        df = pd.read_csv('Project_DataSet.csv') 
-    except FileNotFoundError:
-        st.error("SYSTEM ERROR: Core dataset 'Project_Dataset.csv' is offline.")
-        return None
-    
+def load_and_clean_data():
+    file_path = 'Project_DataSet.csv'
+    if not os.path.exists(file_path):
+        st.error("🚨 System Error: Dataset is missing.")
+        st.stop()
+    df = pd.read_csv(file_path)
     if 'city' in df.columns: df['city'] = df['city'].astype(str).str.strip().str.title()
     if 'crop' in df.columns: df['crop'] = df['crop'].astype(str).str.strip().str.title()
+    if 'month_name' in df.columns: df['month_name'] = df['month_name'].astype(str).str.strip().str.title()
     
+    mean_global = df['avg_price_per_kg'].mean()
+    df['is_high_risk'] = (df['avg_price_per_kg'] > mean_global).astype(int)
     return df
 
-df = load_data()
-
-if df is not None:
+@st.cache_resource
+def train_ai_model(df):
+    ml_df = df.dropna(subset=['avg_price_per_kg']).copy()
     le_city = LabelEncoder()
     le_crop = LabelEncoder()
+    ml_df['city_encoded'] = le_city.fit_transform(ml_df['city'])
+    ml_df['crop_encoded'] = le_crop.fit_transform(ml_df['crop'])
     
-    df['City_Encoded'] = le_city.fit_transform(df['city'])
-    df['Crop_Encoded'] = le_crop.fit_transform(df['crop'])
-    
-    mean_global_price = df['avg_price_per_kg'].mean()
-    df['Is_High_Price'] = (df['avg_price_per_kg'] > mean_global_price).astype(int)
-
-    st.sidebar.image("https://cdn-icons-png.flaticon.com/512/2917/2917995.png", width=120)
-    st.sidebar.markdown("<h2 style='text-align: center; color: white;'>Navigation</h2>", unsafe_allow_html=True)
-    menu = st.sidebar.radio("", 
-                            ["🛒 Consumer Risk Portal", 
-                             "👨‍🌾 Harvest Trajectory", 
-                             "🏛️ Macroeconomic Sandbox"])
-    
-    st.sidebar.markdown("---")
-    st.sidebar.caption("ENGINE: RF Regressor | Linear Regression | Naive Bayes")
-
-    # ==========================================
-    # MODULE 1: CONSUMER PORTAL
-    # ==========================================
-    if menu == "🛒 Consumer Risk Portal":
-        st.header("Retail Anomaly Detection")
-        st.write("Scan retail prices against historical aggregated benchmarks to detect overcharging.")
+    features = ['city_encoded', 'crop_encoded']
+    if 'temperature_c' in ml_df.columns: features.append('temperature_c')
+    if 'inflation_rate_percent' in ml_df.columns: features.append('inflation_rate_percent')
+    if 'fuel_price_change' in ml_df.columns: features.append('fuel_price_change')
         
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            sel_city = st.selectbox("Select Region", df['city'].unique())
-        with col2:
-            sel_crop = st.selectbox("Select Commodity", df['crop'].unique())
-        with col3:
-            shop_price = st.number_input("Retailer Asking Price (PKR):", min_value=1.0, value=150.0, step=1.0)
+    X = ml_df[features].fillna(0)
+    y = ml_df['avg_price_per_kg']
+    
+    model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
+    model.fit(X, y)
+    
+    averages = {
+        'temp': ml_df['temperature_c'].mean() if 'temperature_c' in ml_df.columns else 25.0,
+        'inflation': ml_df['inflation_rate_percent'].mean() if 'inflation_rate_percent' in ml_df.columns else 10.0,
+        'fuel': ml_df['fuel_price_change'].mean() if 'fuel_price_change' in ml_df.columns else 0.0
+    }
+    return model, le_city, le_crop, averages, features, ml_df
+
+df = load_and_clean_data()
+model, le_city, le_crop, averages, model_features, ml_df = train_ai_model(df)
+
+st.markdown("<h1 style='text-align: center; font-size: 3.5em;'>🌾 AgriSmart Pakistan</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; font-size: 1.2em; color: #b0b0b0 !important;'>Advanced Agricultural Price Monitoring & Decision Support System</p>", unsafe_allow_html=True)
+st.markdown("<hr style='border: 1px solid #00e676;'>", unsafe_allow_html=True)
+
+tab1, tab2, tab3 = st.tabs(["🛒 1. Check Shop Prices", "👨‍🌾 2. Farmer Profit Planner", "🏛️ 3. Test Government Policies"])
+
+with tab1:
+    st.markdown("### 🔍 Consumer Protection & Risk Analysis")
+    c1, c2, c3 = st.columns(3)
+    city_list = ["🌐 All Pakistan (Average)"] + sorted(df['city'].unique().tolist())
+    crop_list = sorted(df['crop'].unique().tolist())
+    
+    with c1: selected_zone = st.selectbox("Select Your City:", city_list)
+    with c2: selected_commodity = st.selectbox("Select Crop/Vegetable:", crop_list)
+    with c3: input_retail_price = st.number_input("Shopkeeper's Price (PKR/KG):", min_value=1.0, value=150.0)
+        
+    if st.button("Execute Market Diagnostics", use_container_width=True):
+        st.toast("🧠 Compiling regional data...")
+        time.sleep(0.5) 
+        
+        if selected_zone == "🌐 All Pakistan (Average)":
+            fair_value = df[df['crop'] == selected_commodity]['avg_price_per_kg'].mean()
+        else:
+            sub_set = df[(df['city'] == selected_zone) & (df['crop'] == selected_commodity)]
+            fair_value = sub_set['avg_price_per_kg'].mean() if not sub_set.empty else df[df['crop'] == selected_commodity]['avg_price_per_kg'].mean()
             
-        if st.button("Execute Diagnostics", use_container_width=True):
-            with st.spinner("Compiling regional metrics..."):
-                city_data = df[(df['city'] == sel_city) & (df['crop'] == sel_crop)]
+        if pd.isna(fair_value):
+            st.error("Data not available for this specific combination.")
+        else:
+            col_viz, col_stat = st.columns([1.5, 1])
+            
+            fig_gauge = go.Figure(go.Indicator(
+                mode = "gauge+number+delta", value = input_retail_price, domain = {'x': [0, 1], 'y': [0, 1]},
+                title = {'text': f"Market Meter: {selected_commodity}<br><span style='font-size:14px;color:#cccccc'>Verified Average: PKR {fair_value:.0f}</span>", 'font': {'color': 'white'}},
+                delta = {'reference': fair_value, 'increasing': {'color': "#ff3d00"}, 'decreasing': {'color': "#00e676"}},
+                gauge = {
+                    'axis': {'range': [None, max(fair_value * 2, input_retail_price * 1.5)], 'tickcolor': "white"},
+                    'bar': {'color': "white", 'thickness': 0.15}, 'bgcolor': "rgba(0,0,0,0)",
+                    'steps': [
+                        {'range': [0, fair_value], 'color': "rgba(0, 230, 118, 0.4)"}, 
+                        {'range': [fair_value, fair_value + 7], 'color': "rgba(255, 193, 7, 0.4)"}, 
+                        {'range': [fair_value + 7, 10000], 'color': "rgba(255, 61, 0, 0.4)"} 
+                    ],
+                    'threshold': {'line': {'color': "white", 'width': 3}, 'thickness': 0.8, 'value': fair_value}
+                }
+            ))
+            fig_gauge.update_layout(paper_bgcolor="rgba(0,0,0,0)", font={'color': "white"}, height=300)
+            
+            with col_viz: st.plotly_chart(fig_gauge, use_container_width=True)
                 
-                if not city_data.empty:
-                    avg_price = city_data['avg_price_per_kg'].mean()
-                    diff = shop_price - avg_price
-                    
-                    st.markdown("### 🎛️ Deviation Analysis")
-                    fig_gauge = go.Figure(go.Indicator(
-                        mode = "gauge+number+delta",
-                        value = shop_price,
-                        domain = {'x': [0, 1], 'y': [0, 1]},
-                        title = {'text': "Price vs Average", 'font': {'size': 24}},
-                        delta = {'reference': avg_price, 'increasing': {'color': "#ff4b4b"}, 'decreasing': {'color': "#00ff9d"}},
-                        gauge = {
-                            'axis': {'range': [None, avg_price * 2], 'tickwidth': 1},
-                            'bar': {'color': "#1f77b4"},
-                            'bgcolor': "rgba(0,0,0,0)",
-                            'steps': [
-                                {'range': [0, avg_price], 'color': "rgba(0, 255, 157, 0.2)"},
-                                {'range': [avg_price, avg_price + 7], 'color': "rgba(255, 255, 0, 0.2)"},
-                                {'range': [avg_price + 7, avg_price * 2], 'color': "rgba(255, 75, 75, 0.2)"}],
-                            'threshold': {'line': {'color': "red", 'width': 4}, 'thickness': 0.75, 'value': avg_price + 7}
-                        }
-                    ))
-                    fig_gauge.update_layout(height=350, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor="rgba(0,0,0,0)")
-                    st.plotly_chart(fig_gauge, use_container_width=True)
-                    
-                    if diff > 7:
-                        st.error(f"🚨 ALERT: Severe deviation detected. Price is {diff:.2f} PKR above the regional baseline. Exceeds the 7 PKR maximum tolerance threshold.")
-                    elif diff > 0 and diff <= 7:
-                        st.warning(f"⚠️ NOTICE: Minor inflation detected. Price is {diff:.2f} PKR above average but remains within the accepted retail fluctuation variance.")
-                    else:
-                        st.success("✅ VERIFIED: The quoted price is optimal and falls below or exactly matches the fair market value.")
-                        st.balloons()
-                        
-                    st.markdown("---")
-                    st.subheader("🔮 Predictive Risk Classification")
-                    
-                    nb_model = GaussianNB()
-                    X_nb = df[['City_Encoded', 'Crop_Encoded']]
-                    y_nb = df['Is_High_Price']
-                    nb_model.fit(X_nb, y_nb)
-                    
-                    input_city_enc = le_city.transform([sel_city])[0]
-                    input_crop_enc = le_crop.transform([sel_crop])[0]
-                    risk_prob = nb_model.predict_proba([[input_city_enc, input_crop_enc]])[0][1] * 100
-                    
-                    c1, c2 = st.columns([1, 3])
-                    with c1:
-                        st.metric("Surge Probability", f"{risk_prob:.1f}%")
-                    with c2:
-                        if risk_prob > 50:
-                            st.warning(f"Classification Engine (Naive Bayes) indicates a high probability of persistent market surges for {sel_crop} in this sector.")
-                        else:
-                            st.info(f"Classification Engine (Naive Bayes) indicates localized market stability. Prolonged price spikes are statistically unlikely.")
+            with col_stat:
+                st.markdown("<br>", unsafe_allow_html=True)
+                diff = input_retail_price - fair_value
+                
+                if diff > 7:
+                    st.markdown(f"<div class='metric-card warning-card'><h4>🚨 Overpriced!</h4><h2 style='color:#ff3d00;'>+{diff:.0f} PKR</h2><p>Exceeds the 7 PKR tolerance margin. You are being overcharged.</p></div>", unsafe_allow_html=True)
+                elif diff > 0 and diff <= 7:
+                    st.markdown(f"<div class='metric-card' style='border-left: 6px solid #ffc107;'><h4>⚠️ Slightly High</h4><h2 style='color:#ffc107;'>+{diff:.0f} PKR</h2><p>Slightly above average but within the acceptable 7 PKR variance.</p></div>", unsafe_allow_html=True)
                 else:
-                    st.error("Insufficient regional data points to compile diagnostics.")
+                    st.snow()
+                    st.markdown(f"<div class='metric-card'><h4>✅ Verified Deal</h4><h2 style='color:#00e676;'>Optimal</h2><p>The price matches or is lower than the fair market value.</p></div>", unsafe_allow_html=True)
 
-    # ==========================================
-    # MODULE 2: FARMER PORTAL
-    # ==========================================
-    elif menu == "👨‍🌾 Harvest Trajectory":
-        st.header("Macro-Economic Projection")
-        st.write("Utilize linear modeling to determine the overarching financial trajectory of your crop.")
+            if selected_zone != "🌐 All Pakistan (Average)":
+                st.markdown("#### 🔮 Regional Surge Probability (Naive Bayes Classifier)")
+                nb_model = GaussianNB()
+                X_nb = ml_df[['city_encoded', 'crop_encoded']]
+                y_nb = ml_df['is_high_risk']
+                nb_model.fit(X_nb, y_nb)
+                
+                enc_city = le_city.transform([selected_zone])[0]
+                enc_crop = le_crop.transform([selected_commodity])[0]
+                risk_prob = nb_model.predict_proba([[enc_city, enc_crop]])[0][1] * 100
+                
+                r_col1, r_col2 = st.columns([1, 3])
+                with r_col1:
+                    st.metric("Surge Risk", f"{risk_prob:.1f}%")
+                with r_col2:
+                    if risk_prob > 50:
+                        st.error("Algorithm indicates a statistically high probability of sustained price inflation in this region.")
+                    else:
+                        st.success("Algorithm confirms market stability. Sudden inflation spikes are statistically unlikely here.")
+
+with tab2:
+    st.markdown("### 📈 Farmer Trajectory & Profit Modeling")
+    
+    if 'month_name' in df.columns:
+        fc1, fc2 = st.columns([1, 2])
+        with fc1:
+            farmer_crop = st.selectbox("Select Target Commodity:", crop_list, key='f_crop')
+            farmer_kg = st.number_input("Total Volume (KG):", min_value=100, value=1000, step=100)
+            cost_per_kg = st.number_input("Production Cost per KG (PKR):", min_value=1.0, value=40.0)
+            
+        months_order = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+        f_data = df[df['crop'] == farmer_crop].groupby('month_name')['avg_price_per_kg'].mean().reset_index()
+        f_data['month_name'] = pd.Categorical(f_data['month_name'], categories=months_order, ordered=True)
+        f_data = f_data.sort_values('month_name').dropna()
+        f_data['Profit'] = (f_data['avg_price_per_kg'] * farmer_kg) - (cost_per_kg * farmer_kg)
         
-        c1, c2 = st.columns(2)
-        with c1:
-            sel_crop = st.selectbox("Target Commodity", df['crop'].unique())
-        with c2:
-            kg_to_sell = st.number_input("Wholesale Volume (KG):", min_value=40, value=40, step=40)
-            
-        crop_data = df[df['crop'] == sel_crop].copy()
-        if not crop_data.empty:
-            crop_data['Time_Index'] = np.arange(len(crop_data))
-            X_lr = crop_data[['Time_Index']]
-            y_lr = crop_data['avg_price_per_kg']
-            
-            lr_model = LinearRegression()
-            lr_model.fit(X_lr, y_lr)
-            crop_data['Trend_Line'] = lr_model.predict(X_lr)
-            
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=crop_data['Time_Index'], y=crop_data['avg_price_per_kg'], mode='lines+markers', name='Raw Volatility', line=dict(color='rgba(0, 255, 157, 0.4)', width=2)))
-            fig.add_trace(go.Scatter(x=crop_data['Time_Index'], y=crop_data['Trend_Line'], mode='lines', name='Linear Projection', line=dict(color='#ff4b4b', width=4, dash='dot')))
-            fig.update_layout(title=f"Time-Series Analysis & Trajectory Modeling: {sel_crop}", xaxis_title="Chronological Data Sequence", yaxis_title="Price Output (PKR)", plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig, use_container_width=True)
-            
-            trend_diff = crop_data['Trend_Line'].iloc[-1] - crop_data['Trend_Line'].iloc[0]
-            
-            st.markdown("### 📈 Trajectory Conclusion")
-            if trend_diff > 0:
-                st.success("Positive Growth Vector identified. The linear regression model confirms steady appreciation in market valuation.")
-            else:
-                st.error("Negative Growth Vector identified. The model indicates depreciating long-term valuation.")
-                
-            current_avg_price = crop_data['avg_price_per_kg'].mean()
-            est_revenue = current_avg_price * kg_to_sell
-            st.metric("Estimated Yield Value", f"Rs. {est_revenue:,.2f}", f"Calculated over {kg_to_sell} KG")
-
-    # ==========================================
-    # MODULE 3: GOVT PORTAL
-    # ==========================================
-    elif menu == "🏛️ Macroeconomic Sandbox":
-        st.header("Policy Impact Simulator")
-        st.write("Stress-test economic policies. Powered by an ensemble Random Forest model injected with EDA-driven macroeconomic constraints.")
+        best = f_data.loc[f_data['avg_price_per_kg'].idxmax()]
+        worst = f_data.loc[f_data['avg_price_per_kg'].idxmin()]
         
-        col1, col2 = st.columns(2)
-        with col1:
-            sel_city = st.selectbox("Target Region", df['city'].unique())
-            sel_crop = st.selectbox("Commodity Stress Test", df['crop'].unique())
-        with col2:
-            fuel_hike = st.slider("Fuel Rate Hike (%)", 0, 100, 0)
-            inflation_rate = st.slider("Inflationary Pressure (%)", 0.0, 30.0, 5.0)
+        with fc2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            f_col1, f_col2 = st.columns(2)
+            f_col1.markdown(f"<div class='metric-card'><h4>🟢 Peak Liquidation Window</h4><h2 style='color:#00e676;'>{best['month_name']}</h2><p>Est. Profit: PKR {best['Profit']:,.0f}</p></div>", unsafe_allow_html=True)
+            f_col2.markdown(f"<div class='metric-card warning-card'><h4>🔴 High Depreciation Window</h4><h2 style='color:#ff3d00;'>{worst['month_name']}</h2><p>Est. Profit: PKR {worst['Profit']:,.0f}</p></div>", unsafe_allow_html=True)
+            
+        st.markdown("#### 📉 Macro-Economic Trajectory (Linear Regression)")
+        
+        f_data['time_idx'] = np.arange(len(f_data))
+        X_lr = f_data[['time_idx']]
+        y_lr = f_data['avg_price_per_kg']
+        
+        lr_model = LinearRegression()
+        lr_model.fit(X_lr, y_lr)
+        f_data['trend'] = lr_model.predict(X_lr)
+        
+        fig_lr = go.Figure()
+        fig_lr.add_trace(go.Scatter(x=f_data['month_name'], y=f_data['avg_price_per_kg'], mode='lines+markers', name='Actual Volatility', line=dict(color='#00b0ff', width=2)))
+        fig_lr.add_trace(go.Scatter(x=f_data['month_name'], y=f_data['trend'], mode='lines', name='Linear Projection', line=dict(color='#ff3d00', width=3, dash='dot')))
+        fig_lr.update_layout(paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color='white'), height=350)
+        st.plotly_chart(fig_lr, use_container_width=True)
 
-        if st.button("Initialize Simulation", use_container_width=True):
-            with st.spinner("Processing ensemble layers..."):
-                if 'fuel_price_change' not in df.columns:
-                    df['fuel_price_change'] = np.random.uniform(0, 10, len(df))
-                if 'inflation_rate_percent' not in df.columns:
-                    df['inflation_rate_percent'] = np.random.uniform(5, 20, len(df))
-                    
-                features = ['City_Encoded', 'Crop_Encoded', 'fuel_price_change', 'inflation_rate_percent']
-                X_rf = df[features].fillna(0)
-                y_rf = df['avg_price_per_kg']
+with tab3:
+    st.markdown("### 🏛️ Government Policy Impact Simulator")
+    st.write("Test macro-economic variables using Random Forest infused with Exploratory Data Analysis (EDA) constraints.")
+    
+    g1, g2 = st.columns([1, 1.5])
+    
+    with g1:
+        st.markdown("#### Simulation Parameters")
+        sim_crop = st.selectbox("Select Target Crop:", crop_list, key='g_crop')
+        sim_city = st.selectbox("Select Target City:", sorted(df['city'].unique().tolist()), key='g_city')
+        
+        sim_fuel = st.slider("Fuel Rate Fluctuation (%)", min_value=-20.0, max_value=100.0, value=float(averages['fuel']), step=5.0)
+        sim_inflation = st.slider("National Inflation Rate (%)", min_value=0.0, max_value=40.0, value=float(averages['inflation']), step=1.0)
+        sim_temp = st.slider("Environmental Temperature (°C)", min_value=10.0, max_value=50.0, value=float(averages['temp']), step=1.0)
+        
+    with g2:
+        st.markdown("#### Predictive Analytics Engine")
+        enc_city = le_city.transform([sim_city])[0]
+        enc_crop = le_crop.transform([sim_crop])[0]
+        
+        b_vec, s_vec = [], []
+        for feat in model_features:
+            if feat == 'city_encoded': b_vec.append(enc_city); s_vec.append(enc_city)
+            elif feat == 'crop_encoded': b_vec.append(enc_crop); s_vec.append(enc_crop)
+            elif feat == 'temperature_c': b_vec.append(averages['temp']); s_vec.append(sim_temp)
+            elif feat == 'inflation_rate_percent': b_vec.append(averages['inflation']); s_vec.append(sim_inflation)
+            elif feat == 'fuel_price_change': b_vec.append(averages['fuel']); s_vec.append(sim_fuel)
                 
-                rf_model = RandomForestRegressor(n_estimators=100, random_state=42)
-                rf_model.fit(X_rf, y_rf)
-                
-                city_enc = le_city.transform([sel_city])[0]
-                crop_enc = le_crop.transform([sel_crop])[0]
-                base_fuel = df['fuel_price_change'].mean()
-                base_infl = df['inflation_rate_percent'].mean()
-                
-                base_pred = rf_model.predict([[city_enc, crop_enc, base_fuel, base_infl]])[0]
-                
-                eda_fuel_impact = (fuel_hike / 100) * 0.25 * base_pred
-                eda_inflation_impact = (inflation_rate / 100) * 0.50 * base_pred
-                
-                simulated_price = base_pred + eda_fuel_impact + eda_inflation_impact
-                
-                st.markdown("### 📊 Financial Impact Output")
-                c1, c2, c3 = st.columns(3)
-                c1.metric("Base Forecast", f"Rs. {base_pred:.2f}")
-                c2.metric("Stressed Forecast", f"Rs. {simulated_price:.2f}", f"+{(simulated_price - base_pred):.2f} PKR", delta_color="inverse")
-                
-                price_increase_perc = ((simulated_price - base_pred) / base_pred) * 100
-                c3.metric("Net Variance", f"{price_increase_perc:.1f}%")
-                
-                st.markdown("### 🔬 EDA Driver Breakdown")
-                
-                fig_waterfall = go.Figure(go.Waterfall(
-                    name = "Impact", orientation = "v",
-                    measure = ["absolute", "relative", "relative", "total"],
-                    x = ["Base Model Prediction", "Transport Friction (Fuel)", "Macro Inflation", "Final Retail Projection"],
-                    textposition = "outside",
-                    text = [f"{base_pred:.0f}", f"+{eda_fuel_impact:.0f}", f"+{eda_inflation_impact:.0f}", f"{simulated_price:.0f}"],
-                    y = [base_pred, eda_fuel_impact, eda_inflation_impact, simulated_price],
-                    connector = {"line":{"color":"rgb(63, 63, 63)"}}
-                ))
-                fig_waterfall.update_layout(title="Waterfall Analytics: Price Construction", showlegend=False, plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-                st.plotly_chart(fig_waterfall, use_container_width=True)
+        base_price = model.predict([b_vec])[0]
+        
+        diff_fuel = sim_fuel - averages['fuel']
+        diff_inf = sim_inflation - averages['inflation']
+        
+        eda_fuel_impact = (diff_fuel * 0.4) 
+        eda_inflation_impact = (diff_inf * 1.2)
+        
+        simulated_price = base_price + eda_fuel_impact + eda_inflation_impact
+        
+        if simulated_price < base_price and (diff_fuel > 0 or diff_inf > 0):
+            simulated_price = base_price + abs(eda_fuel_impact) + abs(eda_inflation_impact)
+            
+        gc1, gc2 = st.columns(2)
+        gc1.markdown(f"<div class='metric-card' style='border-left: 6px solid #00b0ff;'><h4>Baseline Forecast</h4><h2>PKR {base_price:.0f}</h2><p>Under current conditions</p></div>", unsafe_allow_html=True)
+        
+        c_class = "warning-card" if simulated_price > base_price else "metric-card"
+        c_color = "#ff3d00" if simulated_price > base_price else "#00e676"
+        gc2.markdown(f"<div class='{c_class}'><h4>Stressed Forecast</h4><h2 style='color:{c_color};'>PKR {simulated_price:.0f}</h2><p>Post-simulation result</p></div>", unsafe_allow_html=True)
+        
+        fig_wf = go.Figure(go.Waterfall(
+            orientation = "v", measure = ["absolute", "relative", "relative", "total"],
+            x = ["Base ML Prediction", "EDA Fuel Friction", "EDA Inflation Weight", "Final Policy Output"],
+            textposition = "outside", 
+            text = [f"{base_price:.0f}", f"{eda_fuel_impact:+.0f}", f"{eda_inflation_impact:+.0f}", f"{simulated_price:.0f}"],
+            y = [base_price, eda_fuel_impact, eda_inflation_impact, simulated_price],
+            decreasing = {"marker":{"color":"#00e676"}}, increasing = {"marker":{"color":"#ff3d00"}}, totals = {"marker":{"color":"#00b0ff"}}
+        ))
+        fig_wf.update_layout(title="EDA Constraints Breakdown", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(color='white'), height=320)
+        st.plotly_chart(fig_wf, use_container_width=True)
+
+st.markdown("<hr style='border: 1px solid #333333;'>", unsafe_allow_html=True)
+st.markdown("<center><p style='color:#a0a0a0;'>Developed by Muhammad Haseeb Nasir Ansari, Muhammad Ahmed, Ayesha Shahid | Air University</p></center>", unsafe_allow_html=True)
