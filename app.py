@@ -29,7 +29,7 @@ st.markdown("---")
 @st.cache_data
 def load_data():
     try:
-        df = pd.read_csv('Project_Dataset.csv') 
+        df = pd.read_csv('Project_DataSet.csv') 
     except FileNotFoundError:
         st.error("Dataset 'Project_Dataset.csv' is missing. Please ensure it is uploaded.")
         return None
